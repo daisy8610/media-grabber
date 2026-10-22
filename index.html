@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='19' r='8' fill='none' stroke='%23222' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='8' cy='9' r='3.5' fill='none' stroke='%23222' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='24' cy='9' r='3.5' fill='none' stroke='%23222' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/><path d='M13 18h.01M19 18h.01' fill='none' stroke='%23222' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/><path d='M14.5 22a2.5 2 0 0 0 3 0' fill='none' stroke='%23222' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<title>媒體連結下載器</title>
+<style>
+  body { font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; max-width: 660px; margin: 40px auto; padding: 0 20px; line-height: 1.7; color: #222; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin-top: 32px; border-left: 4px solid #333; padding-left: 10px; }
+  .box { text-align: center; margin: 24px 0; padding: 20px; border: 1px dashed #999; border-radius: 8px; background: #fafafa; }
+  .bm { display: inline-block; padding: 10px 22px; background: #222; color: #fff; border-radius: 6px; text-decoration: none; font-weight: bold; cursor: grab; }
+  .note { font-size: 14px; color: #444; background: #f0f0f0; padding: 12px 16px; border-radius: 6px; margin: 12px 0; }
+  ol li, ul li { margin-bottom: 6px; }
+  code { background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:10px; background:#333; color:#fff; margin-right:4px; }
+</style>
+</head>
+<body>
+
+<h1>媒體連結下載器</h1>
+<p>一個書籤,三個平台各自獨立處理。</p>
+
+<div class="box">
+  <a class="bm" id="bmLink" href="#">📎 抓媒體</a>
+  <br><br>
+  <button onclick="copyCode()">複製程式碼(手動建立書籤用)</button>
+</div>
+
+<h2>安裝</h2>
+<ol>
+  <li>顯示書籤列:<code>Cmd+Shift+B</code></li>
+  <li>把上面黑色按鈕拖到書籤列(舊的請先刪掉)</li>
+</ol>
+
+<h2>使用方式</h2>
+
+<p><span class="tag">X</span></p>
+<ol>
+  <li>在貼文頁點書籤 → 自動開啟一個滿是文字的資料分頁</li>
+  <li>在那個分頁再點一次書籤 → 圖片與最高畫質影片</li>
+</ol>
+
+<p><span class="tag">IG 圖片</span></p>
+<ol>
+  <li>在單獨分頁打開貼文,點書籤</li>
+  <li><b>面板開著,左右切過每一張輪播圖</b>,清單會即時累加</li>
+  <li>想要原始畫質就先點圖放大,清單會自動換成大圖</li>
+</ol>
+
+<p><span class="tag">IG 影片</span></p>
+<ol>
+  <li>網址後面加上 <code>embed/</code>,或點面板上的黃色連結</li>
+  <li>在那頁點書籤</li>
+</ol>
+
+<p><span class="tag">Threads</span></p>
+<ol>
+  <li>點進單一貼文頁面(不要在動態牆上用)</li>
+  <li>點書籤,面板開著切過每一張圖</li>
+  <li>大圖沒出現時,點一下「顯示全部」,再點回「只顯示貼文」</li>
+</ol>
+
+<h2>這版改了什麼</h2>
+<ul>
+  <li>三個平台的判斷邏輯完全拆開,改一邊不會影響另一邊</li>
+  <li>同一張圖的不同尺寸會自動合併,只留解析度最大的</li>
+  <li>清單會標示每張圖的實際尺寸,方便判斷是不是原圖</li>
+  <li>影片縮圖從影片本身擷取,不會配錯</li>
+  <li>Threads 若在貼文容器內找不到東西,會自動退回掃整頁</li>
+</ul>
+
+<h2>已知限制</h2>
+<ul>
+  <li>連結有時效性,抓到請盡快下載</li>
+  <li>X 私密帳號或已刪除貼文抓不到</li>
+  <li>下載請用右鍵「連結另存新檔」</li>
+</ul>
+
+<script type="text/plain" id="btcode">
+(function(){
+  var old = document.getElementById('__mediaPanel');
+  if(old) old.remove();
+
+  var host = location.hostname;
+  var path = location.pathname;
+
+  // ===== 儲存(同頁累積,換頁重置)=====
+  if(!window.__mediaStore || window.__mediaStore.path !== path){
+    window.__mediaStore = {path: path, items: [], keys: {}};
+  }
+  var items = window.__mediaStore.items;
+  var keys  = window.__mediaStore.keys;
+  window.__mediaDiag = [];
+  var diag = window.__mediaDiag;
+
+  var MEDIA = /cdninstagram|fbcdn|scontent|pbs\.twimg\.com|video\.twimg\.com/;
+  var AVATAR = /t51\.2885-19|\/s150x150\/|profile_images|profile_pic/;
+  var STATICRES = /static\.cdninstagram\.com|\/rsrc\.php\//;
+
+  // 同一張圖不同尺寸會有相同檔名,用檔名當識別
+  function fileKey(u){
+    var p = u.split('?')[0];
+    var seg = p.substring(p.lastIndexOf('/') + 1);
+    return seg || p;
+  }
+
+  function addVideo(url, thumb, strict){
+    if(!url) return null;
+    var k = 'v:' + fileKey(url);
+    if(keys[k]) return keys[k];
+    var it = {kind:'video', type:'影片', url:url, thumb:thumb||'', strict:!!strict, w:0};
+    keys[k] = it;
+    items.push(it);
+    return it;
+  }
+
+  // 同檔名只留解析度最大的版本
+  function addImage(url, thumb, w, scopeOk){
+    if(!url) return;
+    var k = 'i:' + fileKey(url);
+    var ex = keys[k];
+    if(ex){
+      if(w > ex.w){ ex.url = url; ex.thumb = thumb || url; ex.w = w; }
+      if(scopeOk) ex.scopeOk = true;
+      return;
+    }
+    var it = {kind:'image', type:'圖片', url:url, thumb:thumb||url, scopeOk:!!scopeOk, w:w||0};
+    keys[k] = it;
+    items.push(it);
+  }
+
+  // 顯示時才判定,尺寸升級後會自動生效
+  function isStrict(r){
+    if(r.kind === 'video') return !!r.strict;
+    return !!r.scopeOk && r.w >= (window.__mediaMin || 150);
+  }
+
+  // ===== 從影片本身擷取一格畫面當縮圖 =====
+  function grabFrame(it){
+    if(!it || it.thumb || it.__tried) return;
+    if(it.url.indexOf('blob:') === 0) return;
+    it.__tried = 1;
+    try {
+      var vv = document.createElement('video');
+      vv.crossOrigin = 'anonymous';
+      vv.muted = true;
+      vv.playsInline = true;
+      vv.preload = 'auto';
+      vv.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;';
+      var done = false;
+      var finish = function(){
+        if(done) return;
+        done = true;
+        try {
+          var w = vv.videoWidth, h = vv.videoHeight;
+          if(w && h){
+            var c = document.createElement('canvas');
+            var sc = 160 / Math.max(w, h);
+            c.width = Math.round(w * sc);
+            c.height = Math.round(h * sc);
+            c.getContext('2d').drawImage(vv, 0, 0, c.width, c.height);
+            it.thumb = c.toDataURL('image/jpeg', 0.7);
+          }
+        } catch(e){}
+        try { vv.removeAttribute('src'); vv.load(); vv.remove(); } catch(e2){}
+      };
+      vv.addEventListener('loadeddata', function(){ setTimeout(finish, 120); });
+      vv.addEventListener('seeked', finish);
+      vv.addEventListener('error', function(){ done = true; try{ vv.remove(); }catch(e3){} });
+      document.body.appendChild(vv);
+      vv.src = it.url + (it.url.indexOf('#') > -1 ? '' : '#t=0.5');
+      setTimeout(function(){ if(!done){ done = true; try{ vv.remove(); }catch(e4){} } }, 12000);
+    } catch(e5){}
+  }
+
+  // ===== 共用收集器 =====
+  function hook(im){
+    if(im.__mediaHooked) return;
+    im.__mediaHooked = 1;
+    im.addEventListener('load', function(){
+      if(window.__mediaRescan) window.__mediaRescan();
+    });
+  }
+
+  function inPanel(el){
+    var p = document.getElementById('__mediaPanel');
+    return !!(p && p.contains(el));
+  }
+
+  function collectImages(scopeEl, minSize, extraOk){
+    window.__mediaMin = minSize;
+    var list = scopeEl.querySelectorAll('img');
+    for(var i=0; i<list.length; i++){
+      var im = list[i];
+      var src = im.currentSrc || im.src;
+      if(!src || !MEDIA.test(src)) continue;
+      if(!im.complete || im.naturalWidth === 0){ hook(im); continue; }
+      var w = im.naturalWidth, h = im.naturalHeight;
+      if(w < 80 || h < 80) continue;
+
+      var hi = src;
+      if(/pbs\.twimg\.com/.test(src)){
+        hi = /name=/.test(src)
+          ? src.replace(/name=\w+/, 'name=orig')
+          : src + (src.indexOf('?') > -1 ? '&' : '?') + 'name=orig';
+      }
+
+      var ok = !AVATAR.test(src) && !STATICRES.test(src);
+      if(ok && extraOk) ok = extraOk(im);
+      diag.push({size: w + 'x' + h, pass: ok});
+      addImage(hi, src, w, ok);
+    }
+  }
+
+  function collectVideos(scopeEl){
+    var newest = null;
+    try {
+      var es = performance.getEntriesByType('resource');
+      for(var i=0; i<es.length; i++){
+        var u = es[i].name;
+        if(!u || !MEDIA.test(u) || !/\.mp4/.test(u)) continue;
+        if(!newest || es[i].startTime > newest.t) newest = {url:u, t:es[i].startTime};
+      }
+    } catch(e){}
+    if(newest) grabFrame(addVideo(newest.url, '', true));
+
+    var vs = scopeEl.querySelectorAll('video');
+    for(var k=0; k<vs.length; k++){
+      var v = vs[k];
+      if(inPanel(v)) continue;
+      var s = v.currentSrc || (v.querySelector('source') ? v.querySelector('source').src : '');
+      if(!s) continue;
+      if(s.indexOf('blob:') === 0){
+        if(!newest) addVideo(s, v.poster || '', false);
+      } else {
+        grabFrame(addVideo(s, v.poster || '', true));
+      }
+    }
+  }
+
+  function watch(){
+    if(window.__mediaObs) return;
+    try {
+      var obs = new MutationObserver(function(){
+        clearTimeout(window.__mediaTimer);
+        window.__mediaTimer = setTimeout(function(){
+          if(window.__mediaRescan) window.__mediaRescan();
+        }, 250);
+      });
+      obs.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'srcset']
+      });
+      window.__mediaObs = obs;
+    } catch(e){}
+  }
+
+  function strictCount(){
+    var c = 0;
+    for(var i=0; i<items.length; i++) if(isStrict(items[i])) c++;
+    return c;
+  }
+
+  var embedUrl = '';
+
+  // ================= X =================
+  if(host.indexOf('x.com') > -1 || host.indexOf('twitter.com') > -1){
+    var m = location.href.match(/status\/(\d+)/);
+    if(!m){ alert('請在單則貼文頁面上使用。'); return; }
+    var id = m[1];
+    var tk = ((Number(id)/1e15)*Math.PI).toString(36).replace(/(0+|\.)/g, '');
+    window.open('https://cdn.syndication.twimg.com/tweet-result?id=' + id + '&token=' + tk, '_blank');
+    return;
+  }
+
+  if(host.indexOf('cdn.syndication.twimg.com') > -1){
+    var pre = document.querySelector('pre');
+    var raw = pre ? pre.innerText : document.body.innerText;
+    var data;
+    try { data = JSON.parse(raw.trim()); }
+    catch(e){ alert('解析失敗,這個分頁不是預期的資料格式。'); return; }
+
+    var md = data.mediaDetails || [];
+    for(var i=0; i<md.length; i++){
+      var d = md[i];
+      if(d.type === 'photo'){
+        addImage(d.media_url_https + '?name=orig', d.media_url_https, 9999, true);
+      } else if(d.video_info && d.video_info.variants){
+        var best = null, vs2 = d.video_info.variants;
+        for(var j=0; j<vs2.length; j++){
+          if(vs2[j].content_type === 'video/mp4'){
+            if(!best || (vs2[j].bitrate||0) > (best.bitrate||0)) best = vs2[j];
+          }
+        }
+        if(best) addVideo(best.url, d.media_url_https || '', true);
+      }
+    }
+    if(!items.length){ alert('這則貼文沒有偵測到圖片或影片。'); return; }
+    showPanel();
+    return;
+  }
+
+  // ================= Instagram =================
+  if(host.indexOf('instagram.com') > -1){
+    var igm = path.match(/\/(p|reel|tv)\/([^\/]+)/);
+    var isEmbed = path.indexOf('/embed') > -1;
+
+    if(igm && !isEmbed){
+      // 貼文頁:只抓圖片,嚴格排除推薦縮圖
+      embedUrl = '/p/' + igm[2] + '/embed/';
+      window.__mediaRescan = function(){
+        diag.length = 0;
+        var sc = document.querySelector('article') || document.querySelector('main') || document;
+        collectImages(sc, 240, function(im){ return sc === document || sc.contains(im); });
+      };
+      watch();
+      window.__mediaRescan();
+      showPanel();
+      return;
+    }
+
+    if(isEmbed){
+      // embed 頁:只抓影片
+      window.__mediaRescan = function(){
+        diag.length = 0;
+        collectVideos(document);
+      };
+      window.__mediaRescan();
+      showPanel();
+      return;
+    }
+  }
+
+  // ================= Threads =================
+  if(host.indexOf('threads.') > -1){
+    window.__mediaRescan = function(){
+      diag.length = 0;
+      var sc = document.querySelector('article') || document;
+      collectVideos(sc);
+      collectImages(sc, 400);
+      // 貼文容器內找不到東西時,退回整頁
+      if(strictCount() === 0 && sc !== document){
+        collectVideos(document);
+        collectImages(document, 400);
+      }
+    };
+    watch();
+    window.__mediaRescan();
+    showPanel();
+    return;
+  }
+
+  // ================= 其他網站 =================
+  window.__mediaRescan = function(){
+    diag.length = 0;
+    collectVideos(document);
+    collectImages(document, 150);
+  };
+  watch();
+  window.__mediaRescan();
+  showPanel();
+
+  // ===== 面板 =====
+  function showPanel(){
+    var showAll = false;
+
+    var panel = document.createElement('div');
+    panel.id = '__mediaPanel';
+    panel.style.cssText = 'position:fixed;top:16px;right:16px;width:340px;max-height:82vh;overflow-y:auto;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,.3);z-index:2147483647;font-family:sans-serif;padding:12px;color:#222;';
+
+    var head = document.createElement('div');
+    head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+    var title = document.createElement('b');
+    title.style.fontSize = '14px';
+    var closeB = document.createElement('button');
+    closeB.textContent = '關閉';
+    closeB.style.cssText = 'border:none;background:#eee;border-radius:4px;padding:4px 10px;cursor:pointer;';
+    head.appendChild(title);
+    head.appendChild(closeB);
+    panel.appendChild(head);
+
+    var toggle = document.createElement('button');
+    toggle.style.cssText = 'border:none;background:#f0f0f0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;margin-bottom:8px;';
+    toggle.onclick = function(){ showAll = !showAll; render(); };
+    panel.appendChild(toggle);
+
+    if(embedUrl){
+      var tip = document.createElement('div');
+      tip.style.cssText = 'font-size:12px;background:#fff8e1;border:1px solid #f0e0a0;border-radius:6px;padding:8px 10px;margin-bottom:8px;line-height:1.5;';
+      var a0 = document.createElement('a');
+      a0.href = embedUrl; a0.target = '_blank'; a0.rel = 'noopener';
+      a0.textContent = '開啟 embed 頁面';
+      a0.style.cssText = 'color:#0066cc;font-weight:bold;margin:0 4px;';
+      tip.appendChild(document.createTextNode('要抓影片?'));
+      tip.appendChild(a0);
+      tip.appendChild(document.createTextNode('→ 在那頁點一次書籤'));
+      panel.appendChild(tip);
+    }
+
+    var body = document.createElement('div');
+    panel.appendChild(body);
+
+    function render(){
+      // 每次重繪前先重掃一次,確保抓到延遲載入的大圖
+      try { if(window.__mediaRescan) window.__mediaRescan(); } catch(e){}
+      body.innerHTML = '';
+      var sc2 = strictCount();
+      var list = showAll ? items : items.filter(function(r){ return isStrict(r); });
+
+      title.textContent = (showAll ? '全部 ' : '貼文媒體 ') + list.length + ' 個';
+      toggle.textContent = showAll ? ('只顯示貼文 (' + sc2 + ')') : ('顯示全部 (' + items.length + ')');
+
+      if(list.length === 0){
+        var e2 = document.createElement('div');
+        e2.style.cssText = 'font-size:13px;color:#666;';
+        e2.textContent = '沒有符合的媒體。影片請先播放幾秒,輪播請切過每一張,或點「顯示全部」。';
+        body.appendChild(e2);
+
+        return;
+      }
+
+      for(var i=0; i<list.length; i++){
+        (function(r){
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid #eee;';
+
+          var th = document.createElement('img');
+          th.referrerPolicy = 'no-referrer';
+          th.setAttribute('referrerpolicy', 'no-referrer');
+          th.style.cssText = 'width:52px;height:52px;object-fit:cover;border-radius:4px;background:#e8e8e8;flex-shrink:0;';
+          th.onerror = function(){ th.removeAttribute('src'); };
+          if(r.thumb) th.src = r.thumb;
+
+          var boxEl = document.createElement('div');
+          boxEl.style.cssText = 'flex:1;font-size:12px;min-width:0;';
+
+          if(r.url.indexOf('blob:') === 0){
+            var btn = document.createElement('button');
+            btn.textContent = '[' + r.type + '] 嘗試下載(串流備援)';
+            btn.style.cssText = 'background:none;border:none;color:#999;padding:0;font-size:12px;cursor:pointer;text-align:left;display:block;';
+            btn.onclick = function(){
+              btn.textContent = '下載中...';
+              fetch(r.url).then(function(res){ return res.blob(); }).then(function(b){
+                var u2 = URL.createObjectURL(b);
+                var a = document.createElement('a');
+                a.href = u2; a.download = 'media_' + Date.now() + '.mp4';
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(function(){ URL.revokeObjectURL(u2); }, 5000);
+                btn.textContent = '[' + r.type + '] 完成';
+              }).catch(function(){
+                btn.textContent = '[' + r.type + '] 失敗,請播放影片後重試';
+              });
+            };
+            boxEl.appendChild(btn);
+          } else {
+            var a2 = document.createElement('a');
+            a2.href = r.url; a2.target = '_blank'; a2.rel = 'noopener';
+            a2.textContent = '[' + r.type + '] 開啟 → 右鍵另存';
+            a2.style.cssText = 'color:#0066cc;text-decoration:none;display:block;';
+            boxEl.appendChild(a2);
+            if(r.kind === 'image' && r.w){
+              var sz = document.createElement('div');
+              sz.style.cssText = 'color:#999;font-size:11px;';
+              sz.textContent = r.w + 'px';
+              boxEl.appendChild(sz);
+            }
+          }
+
+          row.appendChild(th);
+          row.appendChild(boxEl);
+          body.appendChild(row);
+        })(list[i]);
+      }
+    }
+
+    render();
+    var timer = setInterval(render, 1000);
+
+    closeB.onclick = function(){
+      clearInterval(timer);
+      panel.remove();
+    };
+    document.body.appendChild(panel);
+  }
+})();
+
+</script>
+
+<script>
+var raw = document.getElementById('btcode').textContent;
+var bm = 'javascript:' + encodeURIComponent(raw);
+document.getElementById('bmLink').href = bm;
+function copyCode(){
+  navigator.clipboard.writeText(bm).then(function(){
+    alert('已複製,請手動新增書籤並貼到網址欄。');
+  });
+}
+</script>
+
+</body>
+</html>
