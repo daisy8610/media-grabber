@@ -59,6 +59,7 @@
   <li>點進單一貼文頁面(不要在動態牆上用)</li>
   <li>點書籤,面板開著切過每一張圖</li>
   <li>大圖沒出現時,點一下「顯示全部」,再點回「只顯示貼文」</li>
+  <li>從動態牆點進來抓不到影片時,重新整理頁面再點一次書籤</li>
 </ol>
 
 <h2>已知限制</h2>
@@ -211,6 +212,8 @@
       for(var i=0; i<es.length; i++){
         var u = es[i].name;
         if(!u || !MEDIA.test(u) || !/\.mp4/.test(u)) continue;
+        // 串流片段單獨打不開,跳過
+        if(/bytestart|byteend/.test(u)) continue;
         if(!newest || es[i].startTime > newest.t) newest = {url:u, t:es[i].startTime};
       }
     } catch(e){}
@@ -328,6 +331,43 @@
 
   // ================= Threads =================
   if(host.indexOf('threads.') > -1){
+    // 登入後影片走串流,頁面上只有片段;改從頁面內嵌的貼文資料讀完整 mp4
+    var tcode = (path.match(/\/post\/([^\/?]+)/) || [])[1];
+    function takeThreadsJson(txt){
+      if(!txt || txt.indexOf(tcode) < 0 || txt.indexOf('video_versions') < 0) return false;
+      var found = null;
+      function find(o){
+        if(found || !o || typeof o !== 'object') return;
+        if(o.code === tcode){ found = o; return; }
+        for(var k in o) find(o[k]);
+      }
+      try { find(JSON.parse(txt)); } catch(e){ return false; }
+      if(!found) return false;
+      // 影片可能在輪播裡,或文字貼文附帶的媒體裡,所以往下找所有 video_versions
+      var n = 0;
+      function take(o){
+        if(!o || typeof o !== 'object') return;
+        var vv = o.video_versions;
+        if(vv && vv.length){
+          var best = vv[0];
+          for(var j=1; j<vv.length; j++) if((vv[j].width||0) > (best.width||0)) best = vv[j];
+          var cand = o.image_versions2 && o.image_versions2.candidates;
+          addVideo(best.url, cand && cand[0] ? cand[0].url : '', true);
+          n++;
+        }
+        for(var k in o) take(o[k]);
+      }
+      take(found);
+      return n > 0;
+    }
+    function takeThreadsScripts(doc){
+      var ss = doc.querySelectorAll('script[type="application/json"]');
+      for(var i=0; i<ss.length; i++) if(takeThreadsJson(ss[i].textContent)) return true;
+      return false;
+    }
+    // 從動態牆點進來時頁面資料不含這篇,要重新整理後再點書籤
+    if(tcode) takeThreadsScripts(document);
+
     window.__mediaRescan = function(){
       diag.length = 0;
       // 新版 Threads 沒有 article,改用連到本篇的連結找貼文容器
