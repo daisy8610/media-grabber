@@ -61,15 +61,6 @@
   <li>大圖沒出現時,點一下「顯示全部」,再點回「只顯示貼文」</li>
 </ol>
 
-<h2>這版改了什麼</h2>
-<ul>
-  <li>三個平台的判斷邏輯完全拆開,改一邊不會影響另一邊</li>
-  <li>同一張圖的不同尺寸會自動合併,只留解析度最大的</li>
-  <li>清單會標示每張圖的實際尺寸,方便判斷是不是原圖</li>
-  <li>影片縮圖從影片本身擷取,不會配錯</li>
-  <li>Threads 若在貼文容器內找不到東西,會自動退回掃整頁</li>
-</ul>
-
 <h2>已知限制</h2>
 <ul>
   <li>連結有時效性,抓到請盡快下載</li>
@@ -223,7 +214,8 @@
         if(!newest || es[i].startTime > newest.t) newest = {url:u, t:es[i].startTime};
       }
     } catch(e){}
-    if(newest) grabFrame(addVideo(newest.url, '', true));
+    // 網路紀錄不分貼文,只在掃整頁時才用
+    if(newest && scopeEl === document) grabFrame(addVideo(newest.url, '', true));
 
     var vs = scopeEl.querySelectorAll('video');
     for(var k=0; k<vs.length; k++){
@@ -232,7 +224,7 @@
       var s = v.currentSrc || (v.querySelector('source') ? v.querySelector('source').src : '');
       if(!s) continue;
       if(s.indexOf('blob:') === 0){
-        if(!newest) addVideo(s, v.poster || '', false);
+        if(!newest || scopeEl !== document) addVideo(s, v.poster || '', false);
       } else {
         grabFrame(addVideo(s, v.poster || '', true));
       }
@@ -338,7 +330,14 @@
   if(host.indexOf('threads.') > -1){
     window.__mediaRescan = function(){
       diag.length = 0;
-      var sc = document.querySelector('article') || document;
+      // 新版 Threads 沒有 article,改用連到本篇的連結找貼文容器
+      var sc = document.querySelector('article');
+      var pm = path.match(/\/post\/([^\/?]+)/);
+      if(!sc && pm){
+        var pl = document.querySelector('a[href*="/post/' + pm[1] + '"]');
+        sc = pl && pl.closest('[data-pressable-container]');
+      }
+      sc = sc || document;
       collectVideos(sc);
       collectImages(sc, 400);
       // 貼文容器內找不到東西時,退回整頁

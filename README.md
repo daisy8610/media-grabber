@@ -103,6 +103,7 @@ X 的影片是 HLS 串流播放,頁面上只有一個 `blob:` 暫存位址,不�
 ```
 index.html    主檔案 — 說明頁 + 書籤程式碼 + favicon,全部內嵌,無外部相依
 README.md     本文件
+CHANGELOG.md  更新紀錄
 ```
 
 ---
